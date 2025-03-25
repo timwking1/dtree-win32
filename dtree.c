@@ -195,7 +195,7 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
             int height = HIWORD(lParam);
 
             //If the window height is made shorter or longer, readjust the treeview height.
-            SetWindowPos(h_hTreeView, NULL, 0, 0, TREEVIEW_WIDTH, height, SWP_NOZORDER);
+            SetWindowPos(g_hTreeView, NULL, 0, 0, TREEVIEW_WIDTH, height, SWP_NOZORDER);
 
             //If the window width is made narrower or wider, readjust the editor width.
             int editLeft = TREEVIEW_WIDTH + 10;
@@ -340,14 +340,7 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
                             //Create an item:
                             case 1001:
                             {
-                                if(g_hSelectedItem != NULL)
-                                {
-                                    CreateNewItem(g_hTreeView, g_hSelectedItem);
-                                }
-                                else
-                                {
-                                    CreateNewItem(g_hTreeView, NULL);
-                                }
+                                CreateNewItem(g_hTreeView, g_hSelectedItem);
                                 break;
                             }
                             //Delete an item:
@@ -357,7 +350,7 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
                                 if(g_hSelectedItem != NULL)
                                 {
                                     //Get pointer to the selected item
-                                    TreeNodeData* data = (TreeNodeData*)TreeView_GetItemData(g_hTreeView, g_hSelectedItem);
+                                    TreeNodeData* data = (TreeNodeData*)TreeView_GetItem(g_hTreeView, g_hSelectedItem);
 
                                     if(data)
                                     {
@@ -572,11 +565,12 @@ void UpdateEditFields(HWND hTreeView, HTREEITEM hItem)
     if (hItem == NULL)
     {
         return;
+        
     }
     else
     {
         //Get the item data from the given hItem and set the Window text accordingly
-        TreeNodeData* data = (TreeNodeData*)TreeView_GetItemData(hTreeView, hItem);
+        TreeNodeData* data = (TreeNodeData*)TreeView_GetItem(hTreeView, hItem);
         if(data)
         {
             SetWindowText(g_hEditName, data->name);
@@ -603,7 +597,7 @@ void SaveItemChanges(HWND hTreeView, HTREEITEM hItem)
     }
     else
     {
-        TreeNodeData* data = (TreeNodeData*)TreeView_GetItemData(hTreeView, hItem);
+        TreeNodeData* data = (TreeNodeData*)TreeView_GetItem(hTreeView, hItem);
         if(data)
         {
             char buffer[MAX_LOADSTRING];
@@ -645,7 +639,7 @@ HTREEITEM RecursiveSaveTree(HWND hTreeView, HTREEITEM hItem, FILE* file, int lev
 
     else
     {
-        TreeNodeData* data = (TreeNodeData*)TreeView_GetItemData(hTreeView, hItem);
+        TreeNodeData* data = (TreeNodeData*)TreeView_GetItem(hTreeView, hItem);
         if(data)
         {
             //Write the Tree to the file using fprintf and the provided ptr to file handle
@@ -868,7 +862,7 @@ HTREEITEM RecursiveLoadTree(HWND hTreeView, HTREEITEM hParent, FILE* file, int l
             tvis.hInsertAfter = TVI_LAST;
             tvis.item.mask = TVIF_TEXT | TVIF_PARAM;
             tvis.item.pszText = nodeData->name;
-            tvis.iten.lParam = (LPARAM)nodeData;
+            tvis.item.lParam = (LPARAM)nodeData;
             HTREEITEM hItem = TreeView_InsertItem(hTreeView, &tvis);
 
             //Continue loading children
