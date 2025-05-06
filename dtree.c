@@ -3,6 +3,9 @@
 *       timwking1
 *       20-Mar 2025
 =============================================================================*/
+#ifndef UNICODE
+#define UNICODE
+#endif
 
 #include <windows.h>
 #include <commctrl.h>
@@ -16,10 +19,13 @@
 *   Constants
 =============================================================================*/
 
+#define MAX_LOADSTRING 255
+
 #define WINDOW_WIDTH 800
 #define WINDOW_HEIGHT 600
+
 #define TREEVIEW_WIDTH 250
-#define MAX_LOADSTRING 255
+#define TREEVIEW_HEIGHT 600
 
 #define IDM_NEW 101
 #define IDM_OPEN 102
@@ -30,21 +36,19 @@
 #define ID_TREEVIEW 201
 #define ID_EDIT_NAME 202
 #define ID_EDIT_DESCRIPTION 203
-#define ID_SAVE_ITEM 204
 
 /*=============================================================================
 *   Global Declarations
-*       Indicated by "g_" leading the field name
 =============================================================================*/
 
-HINSTANCE g_hInstance;
-HWND g_hWnd;
-HWND g_hTreeView;
-HWND g_hEditName;
-HWND g_hEditDesc;
-HWND g_hSaveButton;
-HTREEITEM g_hSelectedItem;
-char g_szFileName[MAX_PATH] = "";
+HINSTANCE hMainInstance;
+HWND hMainWindow;
+HWND hTreeView;
+HWND hNameEditWindow;
+HWND hDescEditWindow;
+
+HTREEITEM hSelectedItem;
+wchar_t g_szFileName[MAX_PATH] = L"";
 
 /*=============================================================================
 *   Struct Definitions
@@ -52,8 +56,8 @@ char g_szFileName[MAX_PATH] = "";
 
 typedef struct _TreeNodeData 
 {
-    char name[MAX_LOADSTRING];
-    char description[MAX_LOADSTRING];
+    wchar_t name[MAX_LOADSTRING];
+    wchar_t description[MAX_LOADSTRING];
 } TreeNodeData;
 
 /*=============================================================================
@@ -62,11 +66,11 @@ typedef struct _TreeNodeData
 
 LRESULT CALLBACK WindowProc(HWND, UINT, WPARAM, LPARAM);
 void InitializeUI(HWND hwnd);
-void AddItemToTree(HWND hTreeView, HTREEITEM hParent, const char* textm, TreeNodeData* data);
-void SaveTreeToFile(HWND hTreeView, const char* fileName);
-void LoadTreeFromFile(HWND hTreeView, const char* fileName);
+void AddItemToTree(HWND hTreeView, HTREEITEM hParent, TreeNodeData* data);
+void SaveTreeToFile(HWND hTreeView, const wchar_t* fileName);
+void LoadTreeFromFile(HWND hTreeView, const wchar_t* fileName);
 void UpdateEditFields(HWND hTreeView, HTREEITEM hItem);
-void SaveItemChanges(HWND hTreeView, HTREEITEM hItem);
+void OnItemChanges(HWND hTreeView, HTREEITEM hItem);
 HTREEITEM RecursiveSaveTree(HWND hTreeView, HTREEITEM hItem, FILE* file, int level);
 HTREEITEM RecursiveLoadTree(HWND hTreeView, HTREEITEM hParent, FILE* file, int level);
 void CreateNewItem(HWND hTreeView, HTREEITEM hParent);
@@ -76,13 +80,13 @@ void CreateNewItem(HWND hTreeView, HTREEITEM hParent);
 *       The entry point of a win32 application
 *       ***gcc REQUIRES the -mwindows flag to recognize this as the entry point!***
 =============================================================================*/
-int FAR PASCAL WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevious, LPSTR lpCmdLine, int nCmdShow)
+int FAR PASCAL WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevious, WCHAR *lpCmdLine, int nCmdShow)
 {
     /*
     *   Initialize the instance handle reference and the common controls
     *   used in the window procedure.
     */
-    g_hInstance = hInstance;
+    hMainInstance = hInstance;
     INITCOMMONCONTROLSEX icex;
     icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
     icex.dwICC = ICC_TREEVIEW_CLASSES;
@@ -100,7 +104,7 @@ int FAR PASCAL WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevious, LPSTR lp
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);          //curosr (IDC_)
     wc.hbrBackground = (HBRUSH)(COLOR_WINDOW +1);      //background brush handle
     wc.lpszMenuName = NULL;                            //resource name of class menu
-    wc.lpszClassName = "Editor Class";                 //class name string
+    wc.lpszClassName = L"Editor Class";                //class name string
     wc.hIconSm = LoadIcon(NULL, IDI_APPLICATION);      //small version of the icon (IDI_)
     
     /*
@@ -113,7 +117,7 @@ int FAR PASCAL WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevious, LPSTR lp
         if(!RegisterClassEx(&wc))
         {
             //This should never happen, but we inform the user and return gracefully in case it does.
-            MessageBox(NULL, "Window Registration Failed", "Error", MB_ICONERROR | MB_OK);
+            MessageBox(NULL, L"Window Registration Failed", L"Error", MB_ICONERROR | MB_OK);
             return 0;
         }
     }
@@ -123,21 +127,21 @@ int FAR PASCAL WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevious, LPSTR lp
 
     //Initialize the File submenu
     HMENU hFileMenu = CreatePopupMenu();
-    AppendMenu(hFileMenu, MF_STRING, IDM_NEW, "&New");
-    AppendMenu(hFileMenu, MF_STRING, IDM_OPEN, "&Open...");
-    AppendMenu(hFileMenu, MF_STRING, IDM_SAVE, "&Save...");
-    AppendMenu(hFileMenu, MF_STRING, IDM_EXIT, "E&xit");
+    AppendMenu(hFileMenu, MF_STRING, IDM_NEW, L"&New");
+    AppendMenu(hFileMenu, MF_STRING, IDM_OPEN, L"&Open...");
+    AppendMenu(hFileMenu, MF_STRING, IDM_SAVE, L"&Save...");
+    AppendMenu(hFileMenu, MF_STRING, IDM_EXIT, L"E&xit");
 
     //Append the File submenu and about button to the menu bar
-    AppendMenu(hMenu, MF_POPUP, (UINT_PTR)hFileMenu, "&File");
-    AppendMenu(hMenu, MF_STRING, IDM_ABOUT, "&About");
+    AppendMenu(hMenu, MF_POPUP, (UINT_PTR)hFileMenu, L"&File");
+    AppendMenu(hMenu, MF_STRING, IDM_ABOUT, L"&About");
 
     //Initialize the main window
-    g_hWnd = CreateWindowEx
+    hMainWindow = CreateWindowEx
     (
         WS_EX_CLIENTEDGE,                              //Extended window style (WS_EX_)
-        "Editor Class",                                //Class name
-        "dtree",                                     //Title bar text
+        L"Editor Class",                                //Class name
+        L"dtree",                                     //Title bar text
         WS_OVERLAPPEDWINDOW,                           //Window style (WS_)
         CW_USEDEFAULT, CW_USEDEFAULT,                  //Default X and Y screen position of window
         WINDOW_WIDTH, WINDOW_HEIGHT,                   //Width and Height of the window
@@ -147,10 +151,10 @@ int FAR PASCAL WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevious, LPSTR lp
         NULL                                           //lParam (not used here)
     );
 
-    if(g_hWnd == NULL)
+    if(hMainWindow == NULL)
     {
-        //Again, this should never happen since we just created g_Hwnd, but just in case, inform the user and return gracefully.
-        MessageBox(NULL, "Window creation failed.", "Error", MB_ICONERROR | MB_OK);
+        //Again, this should never happen since we just created hMainWindow, but just in case, inform the user and return gracefully.
+        MessageBox(NULL, L"Window creation failed.", L"Error", MB_ICONERROR | MB_OK);
         return 0;
     }
 
@@ -158,11 +162,11 @@ int FAR PASCAL WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevious, LPSTR lp
     *   Now that the main window handle is set up, we can start initializing the individual ui-element "windows" in our main window
     *   For organization sake, we do this in the InitializeUI function.
     */
-    InitializeUI(g_hWnd);
+    InitializeUI(hMainWindow);
 
     //Finally, now that the window is fully initialized, we can show it and begin ticking the message loop.
-    ShowWindow(g_hWnd, nCmdShow);
-    UpdateWindow(g_hWnd);
+    ShowWindow(hMainWindow, nCmdShow);
+    UpdateWindow(hMainWindow);
     MSG msg;
     while(GetMessage(&msg, NULL, 0, 0))
     {
@@ -195,14 +199,13 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
             int height = HIWORD(lParam);
 
             //If the window height is made shorter or longer, readjust the treeview height.
-            SetWindowPos(g_hTreeView, NULL, 0, 0, TREEVIEW_WIDTH, height, SWP_NOZORDER);
+            SetWindowPos(hTreeView, NULL, 0, 0, TREEVIEW_WIDTH, height, SWP_NOZORDER);
 
             //If the window width is made narrower or wider, readjust the editor width.
             int editLeft = TREEVIEW_WIDTH + 10;
             int editWidth = width - TREEVIEW_WIDTH - 20;
-            SetWindowPos(g_hEditName, NULL, editLeft, 10, editWidth, 25, SWP_NOZORDER);
-            SetWindowPos(g_hEditDesc, NULL, editLeft, 70, editWidth, 100, SWP_NOZORDER);
-            SetWindowPos(g_hSaveButton, NULL, editLeft, 180, 100, 30, SWP_NOZORDER);
+            SetWindowPos(hNameEditWindow, NULL, editLeft, 10, editWidth, 25, SWP_NOZORDER);
+            SetWindowPos(hDescEditWindow, NULL, editLeft, 70, editWidth, 100, SWP_NOZORDER);
         }
         break;
 
@@ -215,16 +218,16 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
                 case IDM_NEW:
                 {
-                    TreeView_DeleteAllItems(g_hTreeView);
-                    SetWindowText(g_hEditName, "");
-                    SetWindowText(g_hEditDesc, "");
-                    strcpy(g_szFileName, "");
+                    TreeView_DeleteAllItems(hTreeView);
+                    SetWindowText(hNameEditWindow, L"");
+                    SetWindowText(hDescEditWindow, L"");
+                    wcscpy(g_szFileName, L"");
                     break;
                 }
 
                 case IDM_OPEN:
                 {
-                    char szFile[MAX_PATH] = {0};
+                    wchar_t szFile[MAX_PATH] = {0};
 
                     //Initialize an OPENFILENAME struct to be used by GetOpenFileName
                     OPENFILENAME ofn = {0};
@@ -237,25 +240,25 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     //Display an open file dialog
                     if (GetOpenFileName(&ofn))
                     {
-                        strcpy(g_szFileName, szFile);
+                        wcscpy(g_szFileName, szFile);
                         //Clear the treeview
-                        TreeView_DeleteAllItems(g_hTreeView);
+                        TreeView_DeleteAllItems(hTreeView);
                         //Load the file data into the treeview from the given path
-                        LoadTreeFromFile(g_hTreeView, szFile);
+                        LoadTreeFromFile(hTreeView, szFile);
                     }
                     break;
                 }
 
                 case IDM_SAVE:
                 {
-                    char szFile[MAX_PATH] = {0};
+                    wchar_t szFile[MAX_PATH] = {0};
 
                     //If this is a new file with no name globally defined
                     if(g_szFileName[0] == '\0')
                     {
                         //Initialize an OPENFILENAME struct to be used by GetSaveFileName
                         OPENFILENAME ofn = {0};
-                        strcpy(szFile, "untitled.dat");
+                        wcscpy(szFile, L"untitled.dat");
                         ofn.lStructSize = sizeof(OPENFILENAME);
                         ofn.hwndOwner = hWnd;
                         ofn.lpstrFile = szFile;
@@ -265,15 +268,15 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
                         //Dispaly a save file dialog
                         if(GetSaveFileName(&ofn))
                         {
-                            strcpy(g_szFileName, szFile);
+                            wcscpy(g_szFileName, szFile);
                             //Save our data
-                            SaveTreeToFile(g_hTreeView, szFile);
+                            SaveTreeToFile(hTreeView, szFile);
                         }
                     }
                     else
                     {
                         //Simply save the data if we're editing an open file
-                        SaveTreeToFile(g_hTreeView, g_szFileName);
+                        SaveTreeToFile(hTreeView, g_szFileName);
                     }
                 }
                 break;
@@ -287,16 +290,24 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 case IDM_ABOUT:
                 {
                     //Show an about dialog
-                    MessageBox(hWnd, "dtree", "About", MB_OK | MB_ICONINFORMATION);
+                    MessageBox(hWnd, L"dtree", L"About", MB_OK | MB_ICONINFORMATION);
                     break;
                 }
 
-                //Save individual tree items
-                case ID_SAVE_ITEM:
+                // Handle edit control changes
+                case ID_EDIT_NAME:
                 {
-                    if(g_hSelectedItem != NULL)
+                    if(HIWORD(wParam) == EN_CHANGE && hSelectedItem != NULL)
                     {
-                        SaveItemChanges(g_hTreeView, g_hSelectedItem);
+                        OnItemChanges(hTreeView, hSelectedItem);
+                    }
+                    break;
+                }
+                case ID_EDIT_DESCRIPTION:
+                {
+                    if (HIWORD(wParam) == EN_CHANGE && hSelectedItem != NULL)
+                    {
+                        OnItemChanges(hTreeView, hSelectedItem);
                     }
                     break;
                 }
@@ -316,8 +327,8 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     case TVN_SELCHANGED:
                     {
                         NMTREEVIEW* pnmtv = (NMTREEVIEW*)lParam;
-                        g_hSelectedItem = pnmtv->itemNew.hItem;
-                        UpdateEditFields(g_hTreeView, g_hSelectedItem);
+                        hSelectedItem = pnmtv->itemNew.hItem;
+                        UpdateEditFields(hTreeView, hSelectedItem);
                     }
                     break;
 
@@ -328,8 +339,8 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
                         GetCursorPos(&pt);
 
                         HMENU hPopupMenu = CreatePopupMenu();
-                        AppendMenu(hPopupMenu, MF_STRING, 1001, "Add Child Item");
-                        AppendMenu(hPopupMenu, MF_STRING, 1002, "Delete Item");
+                        AppendMenu(hPopupMenu, MF_STRING, 1001, L"Add Child Item");
+                        AppendMenu(hPopupMenu, MF_STRING, 1002, L"Delete Item");
 
                         //Create a popup menu at the mouse position
                         int cmd = TrackPopupMenu(hPopupMenu, TPM_RETURNCMD | TPM_LEFTBUTTON, pt.x, pt.y, 0, hWnd, NULL);
@@ -340,17 +351,17 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
                             //Create an item:
                             case 1001:
                             {
-                                CreateNewItem(g_hTreeView, g_hSelectedItem);
+                                CreateNewItem(hTreeView, hSelectedItem);
                                 break;
                             }
                             //Delete an item:
                             case 1002:
                             {
                                 //Only if something is selected
-                                if(g_hSelectedItem != NULL)
+                                if(hSelectedItem != NULL)
                                 {
                                     //Get pointer to the selected item
-                                    TreeNodeData* data = (TreeNodeData*)TreeView_GetItem(g_hTreeView, g_hSelectedItem);
+                                    TreeNodeData* data = (TreeNodeData*)TreeView_GetItem(hTreeView, hSelectedItem);
 
                                     if(data)
                                     {
@@ -358,12 +369,12 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
                                         free(data);
                                     }
                                     //Remove it from the tree view
-                                    TreeView_DeleteItem(g_hTreeView, g_hSelectedItem);
+                                    TreeView_DeleteItem(hTreeView, hSelectedItem);
                                     //Deselect it (it doesn't exist anymore!)
-                                    g_hSelectedItem = NULL;
+                                    hSelectedItem = NULL;
                                     //Clear the contents of the editor
-                                    SetWindowText(g_hEditName, "");
-                                    SetWindowText(g_hEditDesc, "");
+                                    SetWindowText(hNameEditWindow, L"");
+                                    SetWindowText(hDescEditWindow, L"");
                                 }
                                 break;
                             }
@@ -401,11 +412,11 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 void InitializeUI(HWND hWnd)
 {
     //Create the Tree View box
-    g_hTreeView = CreateWindowEx
+    hTreeView = CreateWindowEx
     (
         WS_EX_CLIENTEDGE,
         WC_TREEVIEW,
-        "",
+        L"",
         WS_VISIBLE | WS_CHILD | WS_BORDER | TVS_HASLINES | TVS_LINESATROOT | TVS_HASBUTTONS | TVS_SHOWSELALWAYS,
         0,
         0,
@@ -413,87 +424,73 @@ void InitializeUI(HWND hWnd)
         0,
         hWnd,
         (HMENU)ID_TREEVIEW,
-        g_hInstance,
+        hMainInstance,
         NULL
     );
 
     //Create the Name TextBlock
     HWND hNameLabel = CreateWindow
     (
-        "STATIC", 
-        "Name:",
+        L"STATIC", 
+        L"Name:",
         WS_VISIBLE | WS_CHILD,
         TREEVIEW_WIDTH + 10, 10,
         100, 20,
         hWnd,
         NULL,
-        g_hInstance,
+        hMainInstance,
         NULL
     );
 
     //Create the Description TextBlock
     HWND hDescLabel = CreateWindow
     (
-        "STATIC", 
-        "Description:",
+        L"STATIC", 
+        L"Description:",
         WS_VISIBLE | WS_CHILD,
         TREEVIEW_WIDTH + 10, 50,
         100, 20,
         hWnd,
         NULL,
-        g_hInstance,
+        hMainInstance,
         NULL
     );
 
     //Create the Name editor TextBox
-    g_hEditName = CreateWindowEx
+    hNameEditWindow = CreateWindowEx
     (
         WS_EX_CLIENTEDGE,
-        "EDIT",
-        "",
+        L"EDIT",
+        L"",
         WS_VISIBLE | WS_CHILD | WS_BORDER | ES_AUTOHSCROLL,
         TREEVIEW_WIDTH + 10, 30,
         300, 25,
         hWnd,
         (HMENU)ID_EDIT_NAME, 
-        g_hInstance,
+        hMainInstance,
         NULL
     );
 
     //Create the Description editor TextBox
-    g_hEditDesc = CreateWindowEx
+    hDescEditWindow = CreateWindowEx
     (
         WS_EX_CLIENTEDGE,
-        "EDIT",
-        "",
+        L"EDIT",
+        L"",
         WS_VISIBLE | WS_CHILD | WS_BORDER | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL,
         TREEVIEW_WIDTH + 10, 70,
         300, 100,
         hWnd,
         (HMENU)ID_EDIT_DESCRIPTION,
-        g_hInstance,
-        NULL
-    );
-
-    //Create a save button
-    g_hSaveButton = CreateWindow
-    (
-        "BUTTON",
-        "Save Item",
-        WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
-        TREEVIEW_WIDTH + 10, 180,
-        100, 30,
-        hWnd,
-        (HMENU)ID_SAVE_ITEM, 
-        g_hInstance,
+        hMainInstance,
         NULL
     );
 
     //Construct a new root node and copy it's data to the Tree View
     TreeNodeData* rootData = (TreeNodeData*)malloc(sizeof(TreeNodeData));
-    strcpy(rootData->name, "Root");
-    strcpy(rootData->description, "This is the root node");
-    AddItemToTree(g_hTreeView, NULL, "Root", rootData);
+    wcscpy(rootData->name, L"Root");
+    wcscpy(rootData->description, L"This is the root node");
+    AddItemToTree(hTreeView, NULL, rootData);
 }
 
 /*=============================================================================
@@ -503,30 +500,29 @@ void InitializeUI(HWND hWnd)
 *       Parameters:
 *           HWND hTreeView - Handle to the treeview window control
 *           HTREEITEM hParent - Handle to the new item's parent in the tree hierarchy
-*           char* text - Pointer to label of the new item
 *           TreeNodeData* - Pointer to TreeNodeData to be associated with the new item
 *
 =============================================================================*/
-void AddItemToTree(HWND hTreeView, HTREEITEM hParent, const char* text, TreeNodeData* data)
+void AddItemToTree(HWND hTreeView, HTREEITEM hParent, TreeNodeData* data)
 {
     TVINSERTSTRUCT tvins;
-    //Clear enough memory for the TreeView insert struct
     ZeroMemory(&tvins, sizeof(tvins));
-
     tvins.hParent = hParent;
     tvins.hInsertAfter = TVI_LAST;
     tvins.item.mask = TVIF_TEXT | TVIF_PARAM;
-    tvins.item.pszText = (LPSTR)text;
+    tvins.item.pszText = (LPWSTR)data->name;
     tvins.item.lParam = (LPARAM)data;
-
     HTREEITEM hItem = TreeView_InsertItem(hTreeView, &tvins);
-
-    //If there is no parent defined, then this is a root item.
-    if(hParent == NULL)
+    
+    if(hParent != NULL)
     {
-        //Expand the root item automatically...
-        TreeView_Expand(hTreeView, hItem, TVE_EXPAND);
+        //TreeView_Expand(hTreeView, hItem, TVE_EXPAND);
+        TreeView_Expand(hTreeView, hParent, TVE_EXPAND);
     }
+
+    UpdateEditFields(hTreeView, hItem);
+    // Force the TreeView to update its display
+    UpdateWindow(hTreeView);
 }
 
 /*=============================================================================
@@ -544,11 +540,11 @@ void CreateNewItem(HWND hTreeView, HTREEITEM hParent)
     TreeNodeData* data = (TreeNodeData*)malloc(sizeof(TreeNodeData));
 
     //Set the default values
-    strcpy(data->name, "New Item");
-    strcpy(data->description, "");
+    wcscpy(data->name, L"New Item");
+    wcscpy(data->description, L"");
 
     //Add the new item to the TreeView
-    AddItemToTree(hTreeView, hParent, "New Item", data);
+    AddItemToTree(hTreeView, hParent, data);
 }
 
 /*=============================================================================
@@ -564,23 +560,24 @@ void UpdateEditFields(HWND hTreeView, HTREEITEM hItem)
 {
     if (hItem == NULL)
     {
+        SetWindowText(hNameEditWindow, L"");
+        SetWindowText(hDescEditWindow, L"");
         return;
-        
     }
-    else
-    {
-        //Get the item data from the given hItem and set the Window text accordingly
-        TreeNodeData* data = (TreeNodeData*)TreeView_GetItem(hTreeView, hItem);
-        if(data)
-        {
-            SetWindowText(g_hEditName, data->name);
-            SetWindowText(g_hEditDesc, data->description);
-        }
-    }
+    TVITEMA item = {0};
+    item.mask  = TVIF_PARAM;
+    item.hItem = hItem;
+    if (!TreeView_GetItem(hTreeView, &item)) return;
+
+    TreeNodeData* data = (TreeNodeData*)item.lParam;
+    if (!data) return;
+
+    SetWindowText(hNameEditWindow, data->name);
+    SetWindowText(hDescEditWindow, data->description);
 }
 
 /*=============================================================================
-*   SaveItemChanges [void]
+*   OnItemChanges [void]
 *       Saves data from our editors into a TreeItem
 *
 *       Parameters:
@@ -588,31 +585,35 @@ void UpdateEditFields(HWND hTreeView, HTREEITEM hItem)
 *           HTREEITEM hItem - Handle to the TreeItem we are saving data into
 *
 =============================================================================*/
-void SaveItemChanges(HWND hTreeView, HTREEITEM hItem)
+void OnItemChanges(HWND hTreeView, HTREEITEM hItem)
 {
-    if(hItem == NULL)
+    if(!hItem)
     {
-        //Don't do anything if it's null...
         return;
     }
-    else
+
+    TVITEMW item = {};
+    item.mask = TVIF_PARAM;
+    item.hItem = hItem;
+    
+    if(!TreeView_GetItem(hTreeView, &item))
     {
-        TreeNodeData* data = (TreeNodeData*)TreeView_GetItem(hTreeView, hItem);
-        if(data)
-        {
-            char buffer[MAX_LOADSTRING];
-
-            GetWindowText(g_hEditDesc, buffer, MAX_LOADSTRING);
-            strcpy(data->description, buffer);
-
-            TVITEM item;
-            ZeroMemory(&item, sizeof(item));
-            item.mask = TVIF_TEXT | TVIF_HANDLE;
-            item.hItem = hItem;
-            item.pszText = data->name;
-            TreeView_SetItem(hTreeView, &item);
-        }
+        return;
     }
+
+    TreeNodeData* data = (TreeNodeData*)(item.lParam);
+    if(data == NULL)
+    {
+        return;
+    }
+
+    GetWindowText(hNameEditWindow, data->name, MAX_LOADSTRING);
+    GetWindowText(hDescEditWindow, data->description, MAX_LOADSTRING);
+
+    item.mask = TVIF_TEXT;
+    item.pszText = data->name;
+    TreeView_SetItem(hTreeView, &item);
+    UpdateWindow(hTreeView);
 }
 
 /*=============================================================================
@@ -627,40 +628,44 @@ void SaveItemChanges(HWND hTreeView, HTREEITEM hItem)
 =============================================================================*/
 HTREEITEM RecursiveSaveTree(HWND hTreeView, HTREEITEM hItem, FILE* file, int level)
 {
-
-    char escapedDesc[MAX_LOADSTRING * 2];
+    wchar_t escapedDesc[MAX_LOADSTRING * 2];
     int j=0;
 
-    //End the recusion when we have iterated through the entire tree
+    //End the recursion when we have iterated through the entire tree
     if (hItem == NULL)
     {
         return NULL;
     }
 
-    else
+    TVITEMA item;
+    ZeroMemory(&item, sizeof(item));
+    item.mask = TVIF_PARAM;
+    item.hItem = hItem;
+    
+    if (TreeView_GetItem(hTreeView, &item))
     {
-        TreeNodeData* data = (TreeNodeData*)TreeView_GetItem(hTreeView, hItem);
+        TreeNodeData* data = (TreeNodeData*)item.lParam;
         if(data)
         {
             //Write the Tree to the file using fprintf and the provided ptr to file handle
             for(int i = 0; i < level; i++)
             {
-                fprintf(file, "\t");
+                fwprintf(file, L"\t");
             }
-            fprintf(file, "%s\n", data->name);
+            fwprintf(file, L"%s\n", data->name);
 
             for(int i=0; i< level; i++)
             {
-                fprintf(file, "\t");
+                fwprintf(file, L"\t");
             }
-            fprintf(file, "{\n");
+            fwprintf(file, L"{\n");
 
             for(int i=0; i < level + 1; i++)
             {
-                fprintf(file, "\t");
+                fwprintf(file, L"\t");
             }
 
-            for(int i = 0; i< strlen(data->description); i++)
+            for(int i = 0; i< wcslen(data->description); i++)
             {
                 if(data->description[i] == '\n')
                 {
@@ -674,7 +679,7 @@ HTREEITEM RecursiveSaveTree(HWND hTreeView, HTREEITEM hItem, FILE* file, int lev
                 escapedDesc[j] = '\0';
             }
 
-            fprintf(file, "%s\n", escapedDesc);
+            fwprintf(file, L"%s\n", escapedDesc);
 
             //Iterate through the children of each item
             HTREEITEM hChild = TreeView_GetChild(hTreeView, hItem);
@@ -684,14 +689,14 @@ HTREEITEM RecursiveSaveTree(HWND hTreeView, HTREEITEM hItem, FILE* file, int lev
             }
             for(int i=0; i< level; i++)
             {
-                fprintf(file, "\t");
+                fwprintf(file, L"\t");
             }
-            fprintf(file, "}\n");
+            fwprintf(file, L"}\n");
         }
-
-        //Will either return another root node or return NULL when we are finished saving
-        return TreeView_GetNextSibling(hTreeView, hItem);
     }
+
+    //Will either return another root node or return NULL when we are finished saving
+    return TreeView_GetNextSibling(hTreeView, hItem);
 }
 
 /*=============================================================================
@@ -702,9 +707,9 @@ HTREEITEM RecursiveSaveTree(HWND hTreeView, HTREEITEM hItem, FILE* file, int lev
 *           char* fileName - FileName we received either from opening a file or from a file save dialog
 *
 =============================================================================*/
-void SaveTreeToFile(HWND hTreeView, const char* fileName)
+void SaveTreeToFile(HWND hTreeView, const wchar_t* fileName)
 {
-    FILE* file = fopen(fileName, "w");
+    FILE* file = _wfopen(fileName, L"w");
     if(file)
     {
         HTREEITEM hRoot = TreeView_GetRoot(hTreeView);
@@ -713,11 +718,11 @@ void SaveTreeToFile(HWND hTreeView, const char* fileName)
             hRoot = RecursiveSaveTree(hTreeView, hRoot, file, 0);
         }
         fclose(file);
-        MessageBox(g_hWnd, "Tree saved successfully", "Save", MB_OK | MB_ICONINFORMATION);
+        MessageBox(hMainWindow, L"Tree saved successfully", L"Save", MB_OK | MB_ICONINFORMATION);
     }
     else
     {
-        MessageBox(g_hWnd, "Failed to save tree", "Error", MB_OK | MB_ICONERROR);
+        MessageBox(hMainWindow, L"Failed to save tree", L"Error", MB_OK | MB_ICONERROR);
     }
 }
 
@@ -729,11 +734,11 @@ void SaveTreeToFile(HWND hTreeView, const char* fileName)
 *           char* output - Processed line with correct newline chars
 *
 =============================================================================*/
-void ParseLine(char* line, char* output)
+void ParseLine(wchar_t* line, wchar_t* output)
 {
     int j = 0;
     //Iterate each character
-    for(int i=0; i<strlen(line); i++)
+    for(int i=0; i<wcslen(line); i++)
     {
         //Find escape sequence
         if(line[i] == '\\' && line[i+1] == 'n')
@@ -760,23 +765,23 @@ void ParseLine(char* line, char* output)
 *           char* fileName - The open file name we received from the dialog
 *
 =============================================================================*/
-void LoadTreeFromFile(HWND hTreeView, const char* fileName)
+void LoadTreeFromFile(HWND hTreeView, const wchar_t* fileName)
 {
-    FILE* file = fopen(fileName, "r");
+    FILE* file = _wfopen(fileName, L"r");
     if(file)
     {
         TreeView_DeleteAllItems(hTreeView);
-        char line[MAX_LOADSTRING * 2];
-        if(fgets(line, sizeof(line), file))
+        wchar_t line[MAX_LOADSTRING * 2];
+        if(fgetws(line, sizeof(line), file))
         {
-            line[strcspn(line, "\r\n")] = 0;
+            line[wcscspn(line, L"\r\n")] = 0;
 
             TreeNodeData* rootData = (TreeNodeData*)malloc(sizeof(TreeNodeData));
-            strcpy(rootData->name, line);
+            wcscpy(rootData->name, line);
             
-            fgets(line, sizeof(line), file);
-            fgets(line, sizeof(line), file);
-            line[strcspn(line, "\r\n")] = 0;
+            fgetws(line, sizeof(line), file);
+            fgetws(line, sizeof(line), file);
+            line[wcscspn(line, L"\r\n")] = 0;
 
             ParseLine(line, rootData->description);
 
@@ -797,7 +802,7 @@ void LoadTreeFromFile(HWND hTreeView, const char* fileName)
     else
     {
         //Inform the user if for some reason loading fails.
-        MessageBox(g_hWnd, "Failed to open file", "Error", MB_OK | MB_ICONERROR);
+        MessageBoxW(hMainWindow, L"Failed to open file", L"Error", MB_OK | MB_ICONERROR);
     }
 }
 
@@ -813,8 +818,8 @@ void LoadTreeFromFile(HWND hTreeView, const char* fileName)
 =============================================================================*/
 HTREEITEM RecursiveLoadTree(HWND hTreeView, HTREEITEM hParent, FILE* file, int level)
 {
-    char line[MAX_LOADSTRING * 2];
-    char indent[MAX_LOADSTRING];
+    wchar_t line[MAX_LOADSTRING * 2];
+    wchar_t indent[MAX_LOADSTRING];
 
     //Create tab indents for whatever the current level is
     for(int i=0; i< level; i++)
@@ -823,41 +828,43 @@ HTREEITEM RecursiveLoadTree(HWND hTreeView, HTREEITEM hParent, FILE* file, int l
     }
     indent[level] = '\0';
 
-    while(fgets(line, sizeof(line), file))
+    while(fgetws(line, sizeof(line), file))
     {
-        line[strcspn(line, "\r\n")] = 0;
+        line[wcscspn(line, L"\r\n")] = 0;
 
         //check if this is the closing brace for our level
-        char closingBrace[MAX_LOADSTRING];
-        sprintf(closingBrace, "%s}", indent);
+        wchar_t closingBrace[MAX_LOADSTRING];
+        swprintf(closingBrace, MAX_LOADSTRING, L"%s}", indent);
         closingBrace[level] = '}';
         closingBrace[level + 1] = '\0';
-        if(strcmp(line, closingBrace) == 0)
+        if(wcscmp(line, closingBrace) == 0)
         {
             //End of the current level
             return NULL;
         }
 
         //check if this is the node at our level
-        if(strncmp(line, indent, level) == 0 && line[level] != '\t' && line[level] != '{')
+        if(wcsncmp(line, indent, level) == 0 && line[level] != '\t' && line[level] != '{')
         {
             //Child Node
-            char* nodeName = &line[level];
+            wchar_t* nodeName = &line[level];
 
-            //Call twice since there are is a blank line
-            fgets(line, sizeof(line), file);
+            //Skip the opening brace line
+            fgetws(line, sizeof(line), file);
 
-            //Load descriptions
-            fgets(line, sizeof(line), file);
-            line[strcspn(line, "\r\n")] = 0;
+            //Load description
+            fgetws(line, sizeof(line), file);
+            line[wcscspn(line, L"\r\n")] = 0;
 
             //Create a new TreeNodeData and copy the loaded line to it
             TreeNodeData* nodeData = (TreeNodeData*)malloc(sizeof(TreeNodeData));
-            strcpy(nodeData->name, nodeName);
+            wcscpy(nodeData->name, nodeName);
+            
+            //Parse the description, skipping the indentation
             ParseLine(&line[level + 1], nodeData->description);
 
             //Add to TreeView
-            TVINSERTSTRUCT tvis;
+            TVINSERTSTRUCTW tvis;
             tvis.hParent = hParent;
             tvis.hInsertAfter = TVI_LAST;
             tvis.item.mask = TVIF_TEXT | TVIF_PARAM;
