@@ -38,19 +38,6 @@
 #define ID_EDIT_DESCRIPTION 203
 
 /*=============================================================================
-*   Global Declarations
-=============================================================================*/
-
-HINSTANCE hMainInstance;
-HWND hMainWindow;
-HWND hTreeView;
-HWND hNameEditWindow;
-HWND hDescEditWindow;
-
-HTREEITEM hSelectedItem;
-wchar_t g_szFileName[MAX_PATH] = L"";
-
-/*=============================================================================
 *   Struct Definitions
 =============================================================================*/
 
@@ -61,6 +48,21 @@ typedef struct _TreeNodeData
 } TreeNodeData;
 
 /*=============================================================================
+*   Global Declarations
+=============================================================================*/
+
+HINSTANCE hMainInstance;
+HWND hMainWindow;
+HWND hTreeView;
+HWND hNameEditWindow;
+HWND hDescEditWindow;
+
+HTREEITEM hSelectedItem;
+TreeNodeData* hSelectedItemData;
+
+wchar_t g_szFileName[MAX_PATH] = L"";
+
+/*=============================================================================
 *   Declarations
 =============================================================================*/
 
@@ -69,11 +71,20 @@ void InitializeUI(HWND hwnd);
 void AddItemToTree(HWND hTreeView, HTREEITEM hParent, TreeNodeData* data);
 void SaveTreeToFile(HWND hTreeView, const wchar_t* fileName);
 void LoadTreeFromFile(HWND hTreeView, const wchar_t* fileName);
-void UpdateEditFields(HWND hTreeView, HTREEITEM hItem);
-void OnItemChanges(HWND hTreeView, HTREEITEM hItem);
-HTREEITEM RecursiveSaveTree(HWND hTreeView, HTREEITEM hItem, FILE* file, int level);
-HTREEITEM RecursiveLoadTree(HWND hTreeView, HTREEITEM hParent, FILE* file, int level);
-void CreateNewItem(HWND hTreeView, HTREEITEM hParent);
+
+void OnSelectionChanged(LPARAM);
+void UpdateEditFields();
+void SaveFieldsToSelectedItem();
+void UpdateTreeViewText();
+
+void DeleteItem(HTREEITEM);
+void RecursiveDeleteItem(HTREEITEM);
+void DeleteTree(HWND);
+
+void InsertTreeViewData(HWND, HTREEITEM, TreeNodeData*);
+HTREEITEM RecursiveSaveTree(HWND, HTREEITEM, FILE*, int);
+HTREEITEM RecursiveLoadTree(HWND , HTREEITEM, FILE*, int);
+void CreateNewItem(HWND, HTREEITEM, wchar_t*, wchar_t*);
 
 /*=============================================================================
 *   WinMain 
@@ -218,9 +229,12 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
                 case IDM_NEW:
                 {
-                    TreeView_DeleteAllItems(hTreeView);
-                    SetWindowText(hNameEditWindow, L"");
-                    SetWindowText(hDescEditWindow, L"");
+//WARNING: DOES NOT FREE HEAP ALLOCATED STRUCTS FOR TREE ITEMS!
+                    //TreeView_DeleteAllItems(hTreeView);
+                    hSelectedItem = NULL;
+                    DeleteTree(hTreeView);
+
+                    UpdateEditFields();
                     wcscpy(g_szFileName, L"");
                     break;
                 }
@@ -242,7 +256,11 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     {
                         wcscpy(g_szFileName, szFile);
                         //Clear the treeview
-                        TreeView_DeleteAllItems(hTreeView);
+//WARNING: DOES NOT FREE HEAP ALLOCATED STRUCTS FOR TREE ITEMS!
+                        //TreeView_DeleteAllItems(hTreeView);
+                        hSelectedItem = NULL;
+                        DeleteTree(hTreeView);
+
                         //Load the file data into the treeview from the given path
                         LoadTreeFromFile(hTreeView, szFile);
                     }
@@ -299,7 +317,7 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 {
                     if(HIWORD(wParam) == EN_CHANGE && hSelectedItem != NULL)
                     {
-                        OnItemChanges(hTreeView, hSelectedItem);
+                        UpdateTreeViewText();
                     }
                     break;
                 }
@@ -307,7 +325,7 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 {
                     if (HIWORD(wParam) == EN_CHANGE && hSelectedItem != NULL)
                     {
-                        OnItemChanges(hTreeView, hSelectedItem);
+                        //OnItemChanges(hTreeView, hSelectedItem);
                     }
                     break;
                 }
@@ -326,9 +344,8 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     //When the selection of our treeview is changed:
                     case TVN_SELCHANGED:
                     {
-                        NMTREEVIEW* pnmtv = (NMTREEVIEW*)lParam;
-                        hSelectedItem = pnmtv->itemNew.hItem;
-                        UpdateEditFields(hTreeView, hSelectedItem);
+                        OnSelectionChanged(lParam);
+                        UpdateEditFields(hTreeView);
                     }
                     break;
 
@@ -351,7 +368,8 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
                             //Create an item:
                             case 1001:
                             {
-                                CreateNewItem(hTreeView, hSelectedItem);
+                                CreateNewItem(hTreeView, hSelectedItem, L"New Item", L"Description");
+                                UpdateWindow(hWnd);
                                 break;
                             }
                             //Delete an item:
@@ -360,21 +378,11 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
                                 //Only if something is selected
                                 if(hSelectedItem != NULL)
                                 {
-                                    //Get pointer to the selected item
-                                    TreeNodeData* data = (TreeNodeData*)TreeView_GetItem(hTreeView, hSelectedItem);
-
-                                    if(data)
-                                    {
-                                        //Free the memory occupied by the selected item
-                                        free(data);
-                                    }
-                                    //Remove it from the tree view
-                                    TreeView_DeleteItem(hTreeView, hSelectedItem);
-                                    //Deselect it (it doesn't exist anymore!)
+                                    RecursiveDeleteItem(hSelectedItem);
                                     hSelectedItem = NULL;
+                                    hSelectedItemData = NULL;
                                     //Clear the contents of the editor
-                                    SetWindowText(hNameEditWindow, L"");
-                                    SetWindowText(hDescEditWindow, L"");
+                                    UpdateEditFields();
                                 }
                                 break;
                             }
@@ -487,10 +495,7 @@ void InitializeUI(HWND hWnd)
     );
 
     //Construct a new root node and copy it's data to the Tree View
-    TreeNodeData* rootData = (TreeNodeData*)malloc(sizeof(TreeNodeData));
-    wcscpy(rootData->name, L"Root");
-    wcscpy(rootData->description, L"This is the root node");
-    AddItemToTree(hTreeView, NULL, rootData);
+    CreateNewItem(hTreeView, NULL, L"Root", L"This is the root node!");
 }
 
 /*=============================================================================
@@ -505,6 +510,13 @@ void InitializeUI(HWND hWnd)
 =============================================================================*/
 void AddItemToTree(HWND hTreeView, HTREEITEM hParent, TreeNodeData* data)
 {
+    //Validate data input
+    if(!data)
+    {
+        MessageBox(NULL, L"Invalid data!", L"Oops", MB_OK);
+        return;
+    }
+
     TVINSERTSTRUCT tvins;
     ZeroMemory(&tvins, sizeof(tvins));
     tvins.hParent = hParent;
@@ -516,13 +528,8 @@ void AddItemToTree(HWND hTreeView, HTREEITEM hParent, TreeNodeData* data)
     
     if(hParent != NULL)
     {
-        //TreeView_Expand(hTreeView, hItem, TVE_EXPAND);
         TreeView_Expand(hTreeView, hParent, TVE_EXPAND);
     }
-
-    UpdateEditFields(hTreeView, hItem);
-    // Force the TreeView to update its display
-    UpdateWindow(hTreeView);
 }
 
 /*=============================================================================
@@ -534,17 +541,114 @@ void AddItemToTree(HWND hTreeView, HTREEITEM hParent, TreeNodeData* data)
 *           HTREEITEM hParent - Handle to the new item's parent in the tree hierarchy
 *
 =============================================================================*/
-void CreateNewItem(HWND hTreeView, HTREEITEM hParent)
+void CreateNewItem(HWND hTreeView, HTREEITEM hParent, wchar_t* name, wchar_t* description)
 {
     //Allocate memory for the new TreeNodeData
     TreeNodeData* data = (TreeNodeData*)malloc(sizeof(TreeNodeData));
-
     //Set the default values
-    wcscpy(data->name, L"New Item");
-    wcscpy(data->description, L"");
+    wcscpy(data->name, name);
+    wcscpy(data->description, description);
+    AddItemToTree(hTreeView, hSelectedItem, data);
+}
 
-    //Add the new item to the TreeView
-    AddItemToTree(hTreeView, hParent, data);
+void OnSelectionChanged(LPARAM lParam)
+{
+    //Check if a previous item was selected
+    if(hSelectedItem && hSelectedItemData)
+    {
+        //Copy the editor values of the previous selection to their correct locaton
+        SaveFieldsToSelectedItem();
+        //Ensure name is updated in treeview
+        UpdateTreeViewText();
+    }
+
+    //Select the item given by lParam
+    NMTREEVIEW* pnmtv = (NMTREEVIEW*)lParam;
+    hSelectedItem = pnmtv->itemNew.hItem;
+    hSelectedItemData = (TreeNodeData*)pnmtv->itemNew.lParam;
+}
+
+void SaveFieldsToSelectedItem()
+{
+    //Copy the editor values of the previous selection to their correct locaton
+    GetWindowText(hNameEditWindow, hSelectedItemData->name, MAX_LOADSTRING);
+    GetWindowText(hDescEditWindow, hSelectedItemData->description, MAX_LOADSTRING);
+}
+
+void UpdateTreeViewText()
+{
+    TVITEMW item = {0};
+    item.mask = TVIF_TEXT;
+    item.hItem = hSelectedItem;
+    wchar_t buffer[MAX_LOADSTRING] = {0};
+    GetWindowTextW(hNameEditWindow, buffer, MAX_LOADSTRING);
+    item.pszText = buffer;
+    item.cchTextMax = MAX_LOADSTRING;
+    TreeView_SetItem(hTreeView, &item);
+}
+
+void DeleteItem(HTREEITEM hItemToDelete)
+{
+    //Get pointer to the selected item data
+    TVITEMW item = {0};
+    item.mask = TVIF_TEXT | TVIF_PARAM;
+    item.hItem = hItemToDelete;
+
+    if(TreeView_GetItem(hTreeView, &item))
+    {
+        TreeNodeData* data = (TreeNodeData*)item.lParam;
+        if(data)
+        {
+            //Free the TreeNodeData malloc'ed in CreateNewItem()
+            free(data);
+        }
+        else
+        {
+            MessageBox(NULL, L"Warning! Could not free pointer!", L"Error", MB_OK);
+        }
+    }
+    //Remove it from the tree view
+    TreeView_DeleteItem(hTreeView, hItemToDelete);
+}
+
+void RecursiveDeleteItem(HTREEITEM hItemToDelete)
+{
+    //Check for the selected item and set it to null to prevent segfault
+    if(hItemToDelete == hSelectedItem)
+    {
+        hSelectedItem = NULL;
+        hSelectedItemData = NULL;
+    }
+    HTREEITEM hChild = TreeView_GetChild(hTreeView, hItemToDelete);
+    while(hChild)
+    {
+        HTREEITEM hNextChild = TreeView_GetNextSibling(hTreeView, hChild);
+        RecursiveDeleteItem(hChild);
+        hChild = hNextChild;
+    }
+    DeleteItem(hItemToDelete);
+}
+
+/*=============================================================================
+*   DeleteTree [void]
+*       Iterates through the treeview and frees heap allocated structs
+*       that are pointed to by the lParam values of each item
+*       Then calls TreeView_DeleteAllItems() macro to clear the treeview list
+*
+*       Parameters:
+*           HWND - The treeview we want to dismantle
+*
+=============================================================================*/
+void DeleteTree(HWND hTreeViewToDelete)
+{
+    HTREEITEM hRoot = TreeView_GetRoot(hTreeView);
+    while(hRoot)
+    {
+        HTREEITEM hNextRoot = TreeView_GetNextSibling(hTreeView, hRoot);
+        RecursiveDeleteItem(hRoot);
+        hRoot = hNextRoot;
+    }
+
 }
 
 /*=============================================================================
@@ -556,64 +660,63 @@ void CreateNewItem(HWND hTreeView, HTREEITEM hParent)
 *           HTREEITEM hItem - Handle to the TreeItem we are copying content from 
 *
 =============================================================================*/
-void UpdateEditFields(HWND hTreeView, HTREEITEM hItem)
+void UpdateEditFields()
 {
-    if (hItem == NULL)
+    //Blank out the fields if no item is selected
+    if (hSelectedItem == NULL)
     {
         SetWindowText(hNameEditWindow, L"");
         SetWindowText(hDescEditWindow, L"");
         return;
     }
-    TVITEMA item = {0};
-    item.mask  = TVIF_PARAM;
-    item.hItem = hItem;
-    if (!TreeView_GetItem(hTreeView, &item)) return;
 
-    TreeNodeData* data = (TreeNodeData*)item.lParam;
-    if (!data) return;
+    TVITEMW item = {0};
+    item.mask  = TVIF_TEXT | TVIF_PARAM;
+    item.hItem = hSelectedItem;
 
-    SetWindowText(hNameEditWindow, data->name);
-    SetWindowText(hDescEditWindow, data->description);
+    if (!TreeView_GetItem(hTreeView, &item)) 
+    {
+        MessageBox(NULL, L"Couldn't get item!", L"Error", MB_OK);
+        return;
+    }
+
+    //Set the currently selected item pointer to the item.lParam pointer
+    //MessageBox(NULL, hSelectedItemData->description, L"Getting lParam...", MB_OK);
+
+    if (!hSelectedItemData) 
+    {
+        MessageBox(NULL, L"Couldn't get data!", L"Error", MB_OK);
+        return;
+    }
+
+    SetWindowText(hNameEditWindow, hSelectedItemData->name);
+    SetWindowText(hDescEditWindow, hSelectedItemData->description);
 }
 
 /*=============================================================================
-*   OnItemChanges [void]
-*       Saves data from our editors into a TreeItem
+*   InsertTreeViewData [void]
+*       Inserts given treeviewdata into a given tree item lParam
 *
 *       Parameters:
 *           HWND hTreeView - Handle to the TreeView window control
 *           HTREEITEM hItem - Handle to the TreeItem we are saving data into
+*           TreeViewData data - The data we want to insert
 *
 =============================================================================*/
-void OnItemChanges(HWND hTreeView, HTREEITEM hItem)
+void InsertTreeViewData(HWND hTreeView, HTREEITEM hItem, TreeNodeData* data)
 {
-    if(!hItem)
+    if(!hTreeView || !hItem)
     {
         return;
     }
 
-    TVITEMW item = {};
-    item.mask = TVIF_PARAM;
+    //Declare and init a new TVITEM
+    TVITEMW item = {0};
+    item.mask = TVIF_TEXT | TVIF_PARAM;
     item.hItem = hItem;
-    
-    if(!TreeView_GetItem(hTreeView, &item))
-    {
-        return;
-    }
-
-    TreeNodeData* data = (TreeNodeData*)(item.lParam);
-    if(data == NULL)
-    {
-        return;
-    }
-
-    GetWindowText(hNameEditWindow, data->name, MAX_LOADSTRING);
-    GetWindowText(hDescEditWindow, data->description, MAX_LOADSTRING);
-
-    item.mask = TVIF_TEXT;
+    item.lParam = (LPARAM)data;
     item.pszText = data->name;
     TreeView_SetItem(hTreeView, &item);
-    UpdateWindow(hTreeView);
 }
 
 /*=============================================================================
@@ -770,7 +873,11 @@ void LoadTreeFromFile(HWND hTreeView, const wchar_t* fileName)
     FILE* file = _wfopen(fileName, L"r");
     if(file)
     {
-        TreeView_DeleteAllItems(hTreeView);
+//WARNING: DOES NOT FREE HEAP ALLOCATED STRUCTS FOR TREE ITEMS!
+        //TreeView_DeleteAllItems(hTreeView);
+        hSelectedItem = NULL;
+        DeleteTree(hTreeView);
+
         wchar_t line[MAX_LOADSTRING * 2];
         if(fgetws(line, sizeof(line), file))
         {
